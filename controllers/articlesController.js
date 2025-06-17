@@ -288,6 +288,8 @@ export const createArticle = async (req, res) => {
             .tz("Asia/Jakarta")
             .format("YYYY-MM-DD HH:mm:ss");
 
+        console.log(scheduledAtWIB);
+
         const { data: result } = await db
             .from("articles")
             .select("*")
