@@ -288,7 +288,8 @@ export const createArticle = async (req, res) => {
             .tz("Asia/Jakarta")
             .format("YYYY-MM-DD HH:mm:ss");
 
-        console.log(scheduledAtWIB);
+        console.log({ scheduledAt });
+        console.log({ scheduledAtWIB });
 
         const { data: result } = await db
             .from("articles")
@@ -322,7 +323,7 @@ export const createArticle = async (req, res) => {
             .select();
         if (error) throw new Error(error.message);
 
-        await saveScheduledArticleImage(article[0].id, scheduledAtWIB);
+        await saveScheduledArticleImage(article[0].id, scheduledAt);
 
         await saveArticleImage(article[0].id, imageUrl, filename);
 
