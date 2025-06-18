@@ -8,9 +8,10 @@ const checkSchedule = async () => {
     try {
         const { data: schedules, error } = await db
             .from("article_schedule")
-            .select("id, article_id, scheduled_at, is_published")
+            .select("id, article_id, scheduled_at, is_published, is_expired")
             .lte("scheduled_at", now)
-            .eq("is_published", false);
+            .eq("is_published", false)
+            .eq("is_expired", false);
 
         if (error) throw error;
 
