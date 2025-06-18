@@ -7,6 +7,9 @@ import {
     getArticleBySlug,
     getArticleByTitle,
     updateArticleById,
+    publishArticleById,
+    unPublishArticleById,
+    rePublishArticleById,
 } from "../controllers/articlesController.js";
 import { isAdmin } from "../middleware/isAdmin.js";
 import { upload } from "../middleware/uploadMiddleware.js";
@@ -27,5 +30,13 @@ router.patch(
     updateArticleById
 );
 router.delete(`${BASE_URL}/:id`, isAdmin, deleteArticleById);
+router.patch(`${BASE_URL}/publish/:id`, isAdmin, publishArticleById);
+router.patch(`${BASE_URL}/unpublish/:id`, isAdmin, unPublishArticleById);
+router.patch(
+    `${BASE_URL}/republish/:id`,
+    isAdmin,
+    upload.single("image"),
+    rePublishArticleById
+);
 
 export default router;

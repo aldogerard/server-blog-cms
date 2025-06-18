@@ -39,7 +39,7 @@ const checkSchedule = async () => {
             for (const sched of expiredArticles) {
                 await db
                     .from("article_schedule")
-                    .update({ is_expired: true })
+                    .update({ is_expired: true, is_published: false })
                     .eq("id", sched.id);
 
                 console.log(
@@ -52,5 +52,4 @@ const checkSchedule = async () => {
     }
 };
 
-// Jalankan setiap 10 detik
-setInterval(checkSchedule, 10000); // 10 detik = 10000 ms
+setInterval(checkSchedule, 10000);

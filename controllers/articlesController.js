@@ -4,6 +4,7 @@ import moment from "moment-timezone";
 
 import dotenv from "dotenv";
 import e from "cors";
+import { schedule } from "node-cron";
 dotenv.config();
 
 const findById = async (id) => {
@@ -42,18 +43,26 @@ const findArticleScheduled = async (id) => {
     try {
         const { data: result } = await db
             .from("article_schedule")
-            .select("is_published, scheduled_at, expired_at, is_expired")
+            .select(
+                "is_published, scheduled_at, expired_at, is_expired, published_at"
+            )
             .eq("article_id", id);
         if (result.length === 0) {
             return false;
         }
-        const { is_published, scheduled_at, expired_at, is_expired } =
-            result[0];
+        const {
+            is_published,
+            scheduled_at,
+            expired_at,
+            is_expired,
+            published_at,
+        } = result[0];
         return {
             isPublished: is_published,
             scheduledAt: scheduled_at,
             expiredAt: expired_at,
             isExpired: is_expired,
+            publishedAt: published_at,
         };
     } catch (error) {
         return false;
@@ -64,8 +73,14 @@ const mappingArticle = async (article) => {
     const datas = await Promise.all(
         article.map(async (res) => {
             const imageUrl = await findArticleImage(res.id);
-            const { scheduledAt, isPublished, expiredAt, isExpired } =
-                await findArticleScheduled(res.id);
+            const {
+                scheduledAt,
+                isPublished,
+                expiredAt,
+                isExpired,
+                publishedAt,
+            } = await findArticleScheduled(res.id);
+
             return {
                 id: res.id,
                 title: res.title,
@@ -79,6 +94,7 @@ const mappingArticle = async (article) => {
                 scheduledAt,
                 expiredAt,
                 isExpired,
+                publishedAt,
             };
         })
     );
@@ -124,9 +140,8 @@ const saveArticleImage = async (articleId, imageUrl, filename) => {
     } catch (error) {}
 };
 
-const saveScheduledArticleImage = async (articleId, scheduledAt, expiredAt) => {
+const saveScheduledArticle = async (articleId, scheduledAt, expiredAt) => {
     const publishNow = new Date(scheduledAt) < new Date();
-
     try {
         const { error } = await db
             .from("article_schedule")
@@ -135,13 +150,20 @@ const saveScheduledArticleImage = async (articleId, scheduledAt, expiredAt) => {
                     article_id: articleId,
                     scheduled_at: scheduledAt,
                     expired_at: expiredAt,
+                    published_at: publishNow
+                        ? moment()
+                              .tz("Asia/Jakarta")
+                              .format("YYYY-MM-DD HH:mm:ss")
+                        : null,
                     is_published: publishNow ? true : false,
                 },
             ])
             .select();
 
         if (error) throw new Error(error.message);
-    } catch (error) {}
+    } catch (error) {
+        console.log(error);
+    }
 };
 
 const slugify = (text) => {
@@ -201,6 +223,81 @@ const slugify = (text) => {
 //         failedReq(res, 500, error.message);
 //     }
 // };
+
+export const getAllArticles = async (req, res) => {
+    try {
+        const page = req.query.page || 1;
+        const size = req.query.size || 5;
+        const title = req.query.title || "";
+
+        const published = req.query.published || "true";
+        const isPublished = published === "true";
+
+        const expired = req.query.expired || "false";
+        const isExpired = expired === "true";
+
+        const offset = (page - 1) * size;
+        const offsetSize = offset + parseInt(size);
+
+        let query = db
+            .from("articles")
+            .select(
+                "*, article_schedule(is_published, scheduled_at, expired_at, is_expired)"
+            );
+
+        if (title) {
+            query = query.ilike("title", `%${title}%`);
+        }
+
+        const { data: result } = await query;
+
+        if (result === null) {
+            successReq(res, 200, "Articles not found", null);
+            return;
+        }
+
+        const isAdmin = req.user?.role === "admin";
+
+        let filtered = result;
+        if (isAdmin) {
+            if (req.query.published !== undefined) {
+                filtered = result.filter(
+                    (article) =>
+                        article.article_schedule[0].is_published === isPublished
+                );
+            }
+            if (req.query.expired !== undefined) {
+                filtered = filtered.filter(
+                    (article) =>
+                        article.article_schedule[0].is_expired === isExpired
+                );
+            }
+        } else {
+            filtered = result
+                .filter(
+                    (article) =>
+                        article.article_schedule[0].is_published === true
+                )
+                .filter(
+                    (article) =>
+                        article.article_schedule[0].is_expired === false
+                );
+        }
+
+        if (filtered.length === 0) {
+            successReq(res, 200, "Articles not found", null);
+            return;
+        }
+
+        const datas = await mappingArticle(filtered);
+
+        const paginatedData = datas.slice(offset, offsetSize);
+
+        successReq(res, 200, "Article found", paginatedData);
+    } catch (error) {
+        failedReq(res, 500, error.message);
+    }
+};
 
 export const getArticleById = async (req, res) => {
     try {
@@ -325,7 +422,7 @@ export const createArticle = async (req, res) => {
             .select();
         if (error) throw new Error(error.message);
 
-        await saveScheduledArticleImage(article[0].id, scheduledAt, expiredAt);
+        await saveScheduledArticle(article[0].id, scheduledAt, expiredAt);
 
         await saveArticleImage(article[0].id, imageUrl, filename);
 
@@ -416,38 +513,6 @@ export const updateArticleById = async (req, res) => {
             if (updateError) throw new Error(updateError.message);
         }
 
-        if (scheduledAt) {
-            const { error: updateError } = await db
-                .from("article_schedule")
-                .update({
-                    is_published: true,
-                    scheduled_at: moment()
-                        .tz("Asia/Jakarta")
-                        .format("YYYY-MM-DD HH:mm:ss"),
-                })
-                .eq("article_id", id)
-                .select();
-
-            if (updateError) throw new Error(updateError.message);
-        }
-
-        if (expiredAt) {
-            const article = await findArticleScheduled(id);
-            const updateData = { expired_at: expiredAt };
-
-            if (article.isExpired) {
-                updateData.is_expired = false;
-            }
-
-            const { error: updateError } = await db
-                .from("article_schedule")
-                .update(updateData)
-                .eq("article_id", id)
-                .select();
-
-            if (updateError) throw new Error(updateError.message);
-        }
-
         // === Gambar ===
         if (file) {
             const {
@@ -482,76 +547,88 @@ export const updateArticleById = async (req, res) => {
     }
 };
 
-export const getAllArticles = async (req, res) => {
+export const publishArticleById = async (req, res) => {
     try {
-        const page = req.query.page || 1;
-        const size = req.query.size || 5;
-        const title = req.query.title || "";
+        const id = req.params.id;
 
-        const published = req.query.published || "true";
-        const isPublished = published === "true";
-
-        const expired = req.query.expired || "false";
-        const isExpired = expired === "true";
-
-        const offset = (page - 1) * size;
-        const offsetSize = offset + parseInt(size);
-
-        let query = db
-            .from("articles")
-            .select(
-                "*, article_schedule(is_published, scheduled_at, expired_at, is_expired)"
-            );
-
-        if (title) {
-            query = query.ilike("title", `%${title}%`);
-        }
-
-        const { data: result } = await query;
-
-        if (result === null) {
-            successReq(res, 200, "Articles not found", null);
+        const result = await findById(id);
+        console.log(result);
+        if (!result) {
+            successReq(res, 404, "Article not found", null);
             return;
         }
 
-        const isAdmin = req.user?.role === "admin";
+        const { error: updateError } = await db
+            .from("article_schedule")
+            .update({
+                is_published: true,
+                scheduled_at: moment()
+                    .tz("Asia/Jakarta")
+                    .format("YYYY-MM-DD HH:mm:ss"),
+                published_at: moment()
+                    .tz("Asia/Jakarta")
+                    .format("YYYY-MM-DD HH:mm:ss"),
+            })
+            .eq("article_id", id)
+            .select();
 
-        let filtered = result;
-        if (isAdmin) {
-            if (req.query.published !== undefined) {
-                filtered = result.filter(
-                    (article) =>
-                        article.article_schedule[0].is_published === isPublished
-                );
-            }
-            if (req.query.expired !== undefined) {
-                filtered = filtered.filter(
-                    (article) =>
-                        article.article_schedule[0].is_expired === isExpired
-                );
-            }
-        } else {
-            filtered = result
-                .filter(
-                    (article) =>
-                        article.article_schedule[0].is_published === true
-                )
-                .filter(
-                    (article) =>
-                        article.article_schedule[0].is_expired === false
-                );
-        }
+        if (updateError) throw new Error(updateError.message);
 
-        if (filtered.length === 0) {
-            successReq(res, 200, "Articles not found", null);
-            return;
-        }
+        successReq(res, 200, "Article published", null);
+    } catch (error) {
+        failedReq(res, 500, error.message);
+    }
+};
 
-        const datas = await mappingArticle(filtered);
+export const unPublishArticleById = async (req, res) => {
+    try {
+        const id = req.params.id;
 
-        const paginatedData = datas.slice(offset, offsetSize);
+        const { error: updateError } = await db
+            .from("article_schedule")
+            .update({
+                is_published: false,
+                is_expired: true,
+                expired_at: moment()
+                    .tz("Asia/Jakarta")
+                    .format("YYYY-MM-DD HH:mm:ss"),
+            })
+            .eq("article_id", id)
+            .select();
 
-        successReq(res, 200, "Article found", paginatedData);
+        if (updateError) throw new Error(updateError.message);
+
+        successReq(res, 200, "Article unpublished", null);
+    } catch (error) {
+        failedReq(res, 500, error.message);
+    }
+};
+
+export const rePublishArticleById = async (req, res) => {
+    try {
+        const id = req.params.id;
+        const expiredAt = req.body.expiredAt;
+        const scheduledAt = req.body.scheduledAt;
+
+        const publishNow = new Date(scheduledAt) < new Date();
+
+        const { error: updateError } = await db
+            .from("article_schedule")
+            .update({
+                scheduled_at: scheduledAt,
+                expired_at: expiredAt,
+                is_expired: false,
+                is_published: publishNow ? true : false,
+                published_at: publishNow
+                    ? moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss")
+                    : null,
+            })
+            .eq("article_id", id)
+            .select();
+
+        if (updateError) throw new Error(updateError.message);
+
+        successReq(res, 200, "Article re-published", null);
     } catch (error) {
         failedReq(res, 500, error.message);
     }
