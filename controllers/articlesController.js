@@ -391,7 +391,7 @@ export const deleteArticleById = async (req, res) => {
 export const updateArticleById = async (req, res) => {
     try {
         const id = req.params.id;
-        const { title, content, expiredAt } = req.body;
+        const { title, content, expiredAt, scheduledAt } = req.body;
         const file = req.file;
 
         const result = await findById(id);
@@ -411,6 +411,21 @@ export const updateArticleById = async (req, res) => {
                         .format("YYYY-MM-DD HH:mm:ss"),
                 })
                 .eq("id", id)
+                .select();
+
+            if (updateError) throw new Error(updateError.message);
+        }
+
+        if (scheduledAt) {
+            const { error: updateError } = await db
+                .from("article_schedule")
+                .update({
+                    is_published: true,
+                    scheduled_at: moment()
+                        .tz("Asia/Jakarta")
+                        .format("YYYY-MM-DD HH:mm:ss"),
+                })
+                .eq("article_id", id)
                 .select();
 
             if (updateError) throw new Error(updateError.message);
