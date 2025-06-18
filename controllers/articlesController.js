@@ -3,6 +3,7 @@ import { failedReq, successReq } from "../utils/response.js";
 import moment from "moment-timezone";
 
 import dotenv from "dotenv";
+import e from "cors";
 dotenv.config();
 
 const findById = async (id) => {
@@ -41,13 +42,19 @@ const findArticleScheduled = async (id) => {
     try {
         const { data: result } = await db
             .from("article_schedule")
-            .select("is_published, scheduled_at")
+            .select("is_published, scheduled_at, expired_at, is_expired")
             .eq("article_id", id);
         if (result.length === 0) {
             return false;
         }
-        const { is_published, scheduled_at } = result[0];
-        return { isPublished: is_published, scheduledAt: scheduled_at };
+        const { is_published, scheduled_at, expired_at, is_expired } =
+            result[0];
+        return {
+            isPublished: is_published,
+            scheduledAt: scheduled_at,
+            expiredAt: expired_at,
+            isExpired: is_expired,
+        };
     } catch (error) {
         return false;
     }
@@ -57,9 +64,8 @@ const mappingArticle = async (article) => {
     const datas = await Promise.all(
         article.map(async (res) => {
             const imageUrl = await findArticleImage(res.id);
-            const { scheduledAt, isPublished } = await findArticleScheduled(
-                res.id
-            );
+            const { scheduledAt, isPublished, expiredAt, isExpired } =
+                await findArticleScheduled(res.id);
             return {
                 id: res.id,
                 title: res.title,
@@ -71,6 +77,8 @@ const mappingArticle = async (article) => {
                 imageUrl,
                 isPublished,
                 scheduledAt,
+                expiredAt,
+                isExpired,
             };
         })
     );
@@ -116,7 +124,7 @@ const saveArticleImage = async (articleId, imageUrl, filename) => {
     } catch (error) {}
 };
 
-const saveScheduledArticleImage = async (articleId, scheduledAt) => {
+const saveScheduledArticleImage = async (articleId, scheduledAt, expiredAt) => {
     const publishNow = new Date(scheduledAt) < new Date();
 
     try {
@@ -126,6 +134,7 @@ const saveScheduledArticleImage = async (articleId, scheduledAt) => {
                 {
                     article_id: articleId,
                     scheduled_at: scheduledAt,
+                    expired_at: expiredAt,
                     is_published: publishNow ? true : false,
                 },
             ])
@@ -281,15 +290,8 @@ export const getArticleByTitle = async (req, res) => {
 
 export const createArticle = async (req, res) => {
     try {
-        const { title, content, scheduledAt } = req.body;
+        const { title, content, scheduledAt, expiredAt } = req.body;
         const file = req.file;
-
-        const scheduledAtWIB = moment(scheduledAt)
-            .tz("Asia/Jakarta")
-            .format("YYYY-MM-DD HH:mm:ss");
-
-        console.log({ scheduledAt });
-        console.log({ scheduledAtWIB });
 
         const { data: result } = await db
             .from("articles")
@@ -323,7 +325,7 @@ export const createArticle = async (req, res) => {
             .select();
         if (error) throw new Error(error.message);
 
-        await saveScheduledArticleImage(article[0].id, scheduledAt);
+        await saveScheduledArticleImage(article[0].id, scheduledAt, expiredAt);
 
         await saveArticleImage(article[0].id, imageUrl, filename);
 
@@ -389,7 +391,7 @@ export const deleteArticleById = async (req, res) => {
 export const updateArticleById = async (req, res) => {
     try {
         const id = req.params.id;
-        const { title, content } = req.body;
+        const { title, content, expiredAt } = req.body;
         const file = req.file;
 
         const result = await findById(id);
@@ -409,6 +411,23 @@ export const updateArticleById = async (req, res) => {
                         .format("YYYY-MM-DD HH:mm:ss"),
                 })
                 .eq("id", id)
+                .select();
+
+            if (updateError) throw new Error(updateError.message);
+        }
+
+        if (expiredAt) {
+            const article = await findArticleScheduled(id);
+            const updateData = { expired_at: expiredAt };
+
+            if (article.isExpired) {
+                updateData.is_expired = false;
+            }
+
+            const { error: updateError } = await db
+                .from("article_schedule")
+                .update(updateData)
+                .eq("article_id", id)
                 .select();
 
             if (updateError) throw new Error(updateError.message);
@@ -457,12 +476,17 @@ export const getAllArticles = async (req, res) => {
         const published = req.query.published || "true";
         const isPublished = published === "true";
 
+        const expired = req.query.expired || "false";
+        const isExpired = expired === "true";
+
         const offset = (page - 1) * size;
         const offsetSize = offset + parseInt(size);
 
         let query = db
             .from("articles")
-            .select("*, article_schedule(is_published, scheduled_at)");
+            .select(
+                "*, article_schedule(is_published, scheduled_at, expired_at, is_expired)"
+            );
 
         if (title) {
             query = query.ilike("title", `%${title}%`);
@@ -485,10 +509,27 @@ export const getAllArticles = async (req, res) => {
                         article.article_schedule[0].is_published === isPublished
                 );
             }
+            if (req.query.expired !== undefined) {
+                filtered = filtered.filter(
+                    (article) =>
+                        article.article_schedule[0].is_expired === isExpired
+                );
+            }
         } else {
-            filtered = result.filter(
-                (article) => article.article_schedule[0].is_published === true
-            );
+            filtered = result
+                .filter(
+                    (article) =>
+                        article.article_schedule[0].is_published === true
+                )
+                .filter(
+                    (article) =>
+                        article.article_schedule[0].is_expired === false
+                );
+        }
+
+        if (filtered.length === 0) {
+            successReq(res, 200, "Articles not found", null);
+            return;
         }
 
         const datas = await mappingArticle(filtered);
