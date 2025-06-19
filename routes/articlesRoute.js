@@ -30,7 +30,12 @@ router.patch(
     updateArticleById
 );
 router.delete(`${BASE_URL}/:id`, isAdmin, deleteArticleById);
-router.patch(`${BASE_URL}/publish/:id`, isAdmin, publishArticleById);
+router.patch(
+    `${BASE_URL}/publish/:id`,
+    isAdmin,
+    upload.single("image"),
+    publishArticleById
+);
 router.patch(`${BASE_URL}/unpublish/:id`, isAdmin, unPublishArticleById);
 router.patch(
     `${BASE_URL}/republish/:id`,

@@ -151,9 +151,7 @@ const saveScheduledArticle = async (articleId, scheduledAt, expiredAt) => {
                     scheduled_at: scheduledAt,
                     expired_at: expiredAt,
                     published_at: publishNow
-                        ? moment()
-                              .tz("Asia/Jakarta")
-                              .format("YYYY-MM-DD HH:mm:ss")
+                        ? moment().tz("Asia/Jakarta").format("YYYY-MM-DD")
                         : null,
                     is_published: publishNow ? true : false,
                 },
@@ -557,24 +555,26 @@ export const updateArticleById = async (req, res) => {
 export const publishArticleById = async (req, res) => {
     try {
         const id = req.params.id;
+        const { scheduledAt, expiredAt } = req.body;
 
         const result = await findById(id);
-        console.log(result);
+
         if (!result) {
             successReq(res, 404, "Article not found", null);
             return;
         }
 
+        const publishNow = new Date(scheduledAt) < new Date();
+
         const { error: updateError } = await db
             .from("article_schedule")
             .update({
-                is_published: true,
-                scheduled_at: moment()
-                    .tz("Asia/Jakarta")
-                    .format("YYYY-MM-DD HH:mm:ss"),
-                published_at: moment()
-                    .tz("Asia/Jakarta")
-                    .format("YYYY-MM-DD HH:mm:ss"),
+                scheduled_at: scheduledAt,
+                is_published: publishNow ? true : false,
+                published_at: publishNow
+                    ? moment().tz("Asia/Jakarta").format("YYYY-MM-DD")
+                    : null,
+                expired_at: expiredAt,
             })
             .eq("article_id", id)
             .select();
@@ -596,9 +596,7 @@ export const unPublishArticleById = async (req, res) => {
             .update({
                 is_published: false,
                 is_expired: true,
-                expired_at: moment()
-                    .tz("Asia/Jakarta")
-                    .format("YYYY-MM-DD HH:mm:ss"),
+                expired_at: moment().tz("Asia/Jakarta").format("YYYY-MM-DD"),
             })
             .eq("article_id", id)
             .select();
@@ -627,7 +625,7 @@ export const rePublishArticleById = async (req, res) => {
                 is_expired: false,
                 is_published: publishNow ? true : false,
                 published_at: publishNow
-                    ? moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss")
+                    ? moment().tz("Asia/Jakarta").format("YYYY-MM-DD")
                     : null,
             })
             .eq("article_id", id)
