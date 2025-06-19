@@ -19,7 +19,7 @@ const checkSchedule = async () => {
             for (const sched of schedules) {
                 await db
                     .from("article_schedule")
-                    .update({ is_published: true })
+                    .update({ is_published: true, published_at: now })
                     .eq("id", sched.id);
 
                 console.log(

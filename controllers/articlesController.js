@@ -141,7 +141,7 @@ const saveArticleImage = async (articleId, imageUrl, filename) => {
 };
 
 const saveScheduledArticle = async (articleId, scheduledAt, expiredAt) => {
-    const publishNow = new Date(scheduledAt) < new Date();
+    const publishNow = new Date(scheduledAt) <= new Date();
     try {
         const { error } = await db
             .from("article_schedule")
@@ -564,7 +564,7 @@ export const publishArticleById = async (req, res) => {
             return;
         }
 
-        const publishNow = new Date(scheduledAt) < new Date();
+        const publishNow = new Date(scheduledAt) <= new Date();
 
         const { error: updateError } = await db
             .from("article_schedule")
@@ -615,7 +615,7 @@ export const rePublishArticleById = async (req, res) => {
         const expiredAt = req.body.expiredAt;
         const scheduledAt = req.body.scheduledAt;
 
-        const publishNow = new Date(scheduledAt) < new Date();
+        const publishNow = new Date(scheduledAt) <= new Date();
 
         const { error: updateError } = await db
             .from("article_schedule")
