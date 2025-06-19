@@ -555,7 +555,6 @@ export const updateArticleById = async (req, res) => {
 export const publishArticleById = async (req, res) => {
     try {
         const id = req.params.id;
-        const { scheduledAt, expiredAt } = req.body;
 
         const result = await findById(id);
 
@@ -564,17 +563,11 @@ export const publishArticleById = async (req, res) => {
             return;
         }
 
-        const publishNow = new Date(scheduledAt) <= new Date();
-
         const { error: updateError } = await db
             .from("article_schedule")
             .update({
-                scheduled_at: scheduledAt,
-                is_published: publishNow ? true : false,
-                published_at: publishNow
-                    ? moment().tz("Asia/Jakarta").format("YYYY-MM-DD")
-                    : null,
-                expired_at: expiredAt,
+                is_published: true,
+                published_at: moment().tz("Asia/Jakarta").format("YYYY-MM-DD"),
             })
             .eq("article_id", id)
             .select();
