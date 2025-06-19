@@ -293,7 +293,14 @@ export const getAllArticles = async (req, res) => {
 
         const paginatedData = datas.slice(offset, offsetSize);
 
-        successReq(res, 200, "Article found", paginatedData);
+        const paging = {
+            page,
+            size,
+            total: datas.length,
+            pages: Math.ceil(datas.length / size),
+        };
+
+        successReq(res, 200, "Article found", { paginatedData, paging });
     } catch (error) {
         failedReq(res, 500, error.message);
     }
