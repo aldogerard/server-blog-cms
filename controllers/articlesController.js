@@ -296,11 +296,11 @@ export const getAllArticles = async (req, res) => {
         const paging = {
             page,
             size,
-            total: datas.length,
-            pages: Math.ceil(datas.length / size),
+            totalElements: datas.length,
+            totalPages: Math.ceil(datas.length / size),
         };
 
-        successReq(res, 200, "Article found", { paginatedData, paging });
+        successReq(res, 200, "Article found", { data: paginatedData, paging });
     } catch (error) {
         failedReq(res, 500, error.message);
     }
