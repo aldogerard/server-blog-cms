@@ -10,6 +10,7 @@ import {
     publishArticleById,
     unPublishArticleById,
     rePublishArticleById,
+    getDataArticles,
 } from "../controllers/articlesController.js";
 import { isAdmin } from "../middleware/isAdmin.js";
 import { upload } from "../middleware/uploadMiddleware.js";
@@ -17,6 +18,8 @@ import { defineUser } from "../middleware/defineUser.js";
 
 const router = express.Router();
 const BASE_URL = "/api/articles";
+
+router.get(`${BASE_URL}/data`, isAdmin, getDataArticles);
 
 router.get(`${BASE_URL}`, defineUser, getAllArticles);
 router.get(`${BASE_URL}/:id`, getArticleById);

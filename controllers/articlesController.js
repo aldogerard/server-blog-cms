@@ -222,6 +222,36 @@ const slugify = (text) => {
 //     }
 // };
 
+export const getDataArticles = async (req, res) => {
+    try {
+        const { data } = await db
+            .from("articles")
+            .select("id, article_schedule(is_published, is_expired)");
+
+        let stats = {
+            total: 0,
+            published: 0,
+            notPublished: 0,
+            expired: 0,
+            notExpired: 0,
+        };
+
+        data?.forEach((item) => {
+            stats.total++;
+            const schedule = item.article_schedule[0];
+            if (schedule?.is_published === true) stats.published++;
+            else stats.notPublished++;
+
+            if (schedule?.is_expired === true) stats.expired++;
+            else stats.notExpired++;
+        });
+
+        successReq(res, 200, "Articles found", stats);
+    } catch (error) {
+        failedReq(res, 500, error.message);
+    }
+};
+
 export const getAllArticles = async (req, res) => {
     try {
         const page = req.query.page || 1;
@@ -501,13 +531,17 @@ export const updateArticleById = async (req, res) => {
             successReq(res, 404, "Article not found", null);
             return;
         }
-        if (title || content) {
+
+        if (title || content || expiredAt || scheduledAt) {
             const { error: updateError } = await db
                 .from("articles")
                 .update({
                     title,
                     content,
-                    slug: slugify(title),
+                    slug:
+                        result[0].title === title
+                            ? result[0].slug
+                            : slugify(title),
                     updated_at: moment()
                         .tz("Asia/Jakarta")
                         .format("YYYY-MM-DD HH:mm:ss"),
@@ -516,6 +550,24 @@ export const updateArticleById = async (req, res) => {
                 .select();
 
             if (updateError) throw new Error(updateError.message);
+
+            const publishNow = new Date(scheduledAt) <= new Date();
+
+            const { error: updateScheduledError } = await db
+                .from("article_schedule")
+                .update({
+                    expired_at: expiredAt,
+                    scheduled_at: scheduledAt,
+                    is_published: publishNow ? true : false,
+                    published_at: publishNow
+                        ? moment().tz("Asia/Jakarta").format("YYYY-MM-DD")
+                        : null,
+                })
+                .eq("article_id", id)
+                .select();
+
+            if (updateScheduledError)
+                throw new Error(updateScheduledError.message);
         }
 
         // === Gambar ===
@@ -542,7 +594,6 @@ export const updateArticleById = async (req, res) => {
 
             const path = `articles-${Date.now()}-${file.originalname}`;
             const imageUrl = await uploadImage(file, path);
-
             await saveArticleImage(id, imageUrl, path);
         }
 
@@ -606,20 +657,15 @@ export const rePublishArticleById = async (req, res) => {
     try {
         const id = req.params.id;
         const expiredAt = req.body.expiredAt;
-        const scheduledAt = req.body.scheduledAt;
-
-        const publishNow = new Date(scheduledAt) <= new Date();
 
         const { error: updateError } = await db
             .from("article_schedule")
             .update({
-                scheduled_at: scheduledAt,
+                scheduled_at: moment().tz("Asia/Jakarta").format("YYYY-MM-DD"),
                 expired_at: expiredAt,
                 is_expired: false,
-                is_published: publishNow ? true : false,
-                published_at: publishNow
-                    ? moment().tz("Asia/Jakarta").format("YYYY-MM-DD")
-                    : null,
+                is_published: true,
+                published_at: moment().tz("Asia/Jakarta").format("YYYY-MM-DD"),
             })
             .eq("article_id", id)
             .select();
