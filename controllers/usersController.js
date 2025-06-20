@@ -9,7 +9,8 @@ const findById = async (id) => {
         const { data: result } = await db
             .from("users")
             .select("name, email, role, created_at, updated_at")
-            .eq("id", id);
+            .eq("id", id)
+            .single();
 
         if (!result) {
             return false;
@@ -40,7 +41,11 @@ export const getUserById = async (req, res) => {
 export const updateUserById = async (req, res) => {
     try {
         const id = req.params.id;
-        const { name, email } = req.body;
+        const name = req.body?.name;
+
+        if (!name) {
+            return failedReq(res, 400, "Name is required");
+        }
 
         const result = await findById(id);
         if (!result) {
@@ -52,7 +57,6 @@ export const updateUserById = async (req, res) => {
             .from("users")
             .update({
                 name,
-                email,
                 updated_at: moment()
                     .tz("Asia/Jakarta")
                     .format("YYYY-MM-DD HH:mm:ss"),
@@ -71,7 +75,8 @@ export const updateUserById = async (req, res) => {
 export const updatePasswordById = async (req, res) => {
     try {
         const id = req.params.id;
-        const { oldPassword, newPassword } = req.body;
+        const oldPassword = req.body?.oldPassword;
+        const newPassword = req.body?.newPassword;
 
         // Cek apakah user ada
         const result = await findById(id);
@@ -79,7 +84,6 @@ export const updatePasswordById = async (req, res) => {
             return successReq(res, 404, "User not found", null);
         }
 
-        // Ambil password lama dari database
         const { data, error } = await db
             .from("users")
             .select("password")
