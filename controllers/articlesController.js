@@ -280,7 +280,7 @@ export const getAllArticles = async (req, res) => {
         const { data: result } = await query;
 
         if (result === null) {
-            successReq(res, 200, "Articles not found", null);
+            failedReq(res, 404, "Articles not found", null);
             return;
         }
 
@@ -313,7 +313,7 @@ export const getAllArticles = async (req, res) => {
         }
 
         if (filtered.length === 0) {
-            successReq(res, 200, "Articles not found", null);
+            failedReq(res, 404, "Articles not found", null);
             return;
         }
 
@@ -340,7 +340,7 @@ export const getArticleById = async (req, res) => {
 
         const result = await findById(id);
         if (!result) {
-            successReq(res, 404, "Article not found", null);
+            failedReq(res, 404, "Article not found", null);
             return;
         }
 
@@ -435,8 +435,7 @@ export const createArticle = async (req, res) => {
             return failedReq(res, 400, "Article already exists");
         }
 
-        if (!file)
-            return res.status(400).json({ message: "Image is required" });
+        if (!file) return failedReq(res, 400, "Image is required");
 
         const filename = `article-${Date.now()}-${file.originalname}`;
         const imageUrl = await uploadImage(file, filename);
@@ -473,7 +472,7 @@ export const deleteArticleById = async (req, res) => {
 
         const result = await findById(id);
         if (!result) {
-            successReq(res, 404, "Article not found", null);
+            failedReq(res, 404, "Article not found", null);
             return;
         }
 
@@ -528,7 +527,7 @@ export const updateArticleById = async (req, res) => {
 
         const result = await findById(id);
         if (!result) {
-            successReq(res, 404, "Article not found", null);
+            failedReq(res, 404, "Article not found", null);
             return;
         }
 
@@ -610,7 +609,7 @@ export const publishArticleById = async (req, res) => {
         const result = await findById(id);
 
         if (!result) {
-            successReq(res, 404, "Article not found", null);
+            failedReq(res, 404, "Article not found", null);
             return;
         }
 

@@ -28,7 +28,7 @@ export const getUserById = async (req, res) => {
 
         const result = await findById(id);
         if (!result) {
-            successReq(res, 404, "User not found", null);
+            failedReq(res, 404, "User not found", null);
             return;
         }
 
@@ -49,7 +49,7 @@ export const updateUserById = async (req, res) => {
 
         const result = await findById(id);
         if (!result) {
-            successReq(res, 404, "User not found", null);
+            failedReq(res, 404, "User not found", null);
             return;
         }
 
@@ -81,7 +81,7 @@ export const updatePasswordById = async (req, res) => {
         // Cek apakah user ada
         const result = await findById(id);
         if (!result) {
-            return successReq(res, 404, "User not found", null);
+            return failedReq(res, 404, "User not found", null);
         }
 
         const { data, error } = await db

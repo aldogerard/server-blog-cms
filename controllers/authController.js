@@ -14,7 +14,7 @@ export const login = async (req, res) => {
             .eq("email", email);
 
         if (result.length === 0) {
-            successReq(res, 404, "Email or password is not valid", null);
+            failedReq(res, 404, "Email or password is not valid", null);
             return;
         }
 
@@ -22,7 +22,7 @@ export const login = async (req, res) => {
         const { password: hashedPassword } = data;
         const isMatch = await bcrypt.compare(password, hashedPassword);
         if (!isMatch) {
-            successReq(res, 404, "Email or password is not valid", null);
+            failedReq(res, 404, "Email or password is not valid", null);
             return;
         }
 
