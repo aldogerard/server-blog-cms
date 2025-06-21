@@ -1,5 +1,6 @@
 import moment from "moment-timezone";
 import db from "../config/db.js";
+import cron from "node-cron";
 
 const checkSchedule = async () => {
     const now = moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss");
@@ -34,7 +35,7 @@ const checkSchedule = async () => {
             .lte("expired_at", now)
             .eq("is_expired", false);
 
-        if (expiredError) throw error;
+        if (expiredError) throw expiredError;
 
         if (expiredArticles && expiredArticles.length > 0) {
             for (const sched of expiredArticles) {
@@ -53,4 +54,16 @@ const checkSchedule = async () => {
     }
 };
 
-setInterval(checkSchedule, 10000);
+let hours = 0;
+let minutes = 0;
+
+cron.schedule(`${minutes} ${hours} * * *`, checkSchedule, {
+    timezone: "Asia/Jakarta",
+});
+
+hours = hours.toString().padStart(2, "0");
+minutes = minutes.toString().padStart(2, "0");
+
+console.log(
+    `🔄 Scheduler initialized. Will run daily at ${hours}:${minutes} WIB.`
+);
