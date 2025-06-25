@@ -319,16 +319,22 @@ export const getAllArticles = async (req, res) => {
 
         const datas = await mappingArticle(filtered);
 
-        const sortData = datas.sort((a, b) => {
-            const dateA = new Date(a.publishedAt);
-            const dateB = new Date(b.publishedAt);
+        let sortData;
 
-            if (dateB - dateA !== 0) {
-                return dateB - dateA;
-            }
+        if (!isAdmin) {
+            sortData = datas.sort((a, b) => {
+                const dateA = new Date(a.publishedAt);
+                const dateB = new Date(b.publishedAt);
 
-            return a.title.localeCompare(b.title);
-        });
+                if (dateB - dateA !== 0) {
+                    return dateB - dateA;
+                }
+
+                return a.title.localeCompare(b.title);
+            });
+        } else {
+            sortData = datas;
+        }
 
         const paginatedData = sortData.slice(offset, offsetSize);
 
