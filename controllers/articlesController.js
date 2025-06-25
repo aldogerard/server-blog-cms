@@ -319,7 +319,18 @@ export const getAllArticles = async (req, res) => {
 
         const datas = await mappingArticle(filtered);
 
-        const paginatedData = datas.slice(offset, offsetSize);
+        const sortData = datas.sort((a, b) => {
+            const dateA = new Date(a.publishedAt);
+            const dateB = new Date(b.publishedAt);
+
+            if (dateB - dateA !== 0) {
+                return dateB - dateA;
+            }
+
+            return a.title.localeCompare(b.title);
+        });
+
+        const paginatedData = sortData.slice(offset, offsetSize);
 
         const paging = {
             page,
@@ -327,7 +338,6 @@ export const getAllArticles = async (req, res) => {
             totalElements: datas.length,
             totalPages: Math.ceil(datas.length / size),
         };
-
         successReq(res, 200, "Article found", { data: paginatedData, paging });
     } catch (error) {
         failedReq(res, 500, error.message);
