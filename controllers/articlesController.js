@@ -1,7 +1,7 @@
 import db from "../config/db.js";
 import { failedReq, successReq } from "../utils/response.js";
 import moment from "moment-timezone";
-
+import { v4 as uuidv4 } from "uuid";
 import dotenv from "dotenv";
 import e from "cors";
 import { schedule } from "node-cron";
@@ -164,6 +164,78 @@ const saveScheduledArticle = async (articleId, scheduledAt, expiredAt) => {
     }
 };
 
+const processBase64Images = async (html) => {
+    const regex = /<img[^>]+src=["'](data:image\/[^"']+)["'][^>]*>/g;
+    let match;
+    const uploads = [];
+
+    while ((match = regex.exec(html))) {
+        const base64Str = match[1];
+        const extension = base64Str.match(/data:image\/(.*?);base64/)[1];
+        const base64Data = base64Str.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Buffer.from(base64Data, "base64");
+        const filename = `content-${uuidv4()}.${extension}`;
+
+        const { data, error } = await db.storage
+            .from("blog-cms")
+            .upload(filename, buffer, {
+                contentType: `image/${extension}`,
+            });
+
+        if (error) throw new Error("Failed to upload content image");
+
+        const publicURL = db.storage.from("blog-cms").getPublicUrl(filename)
+            .data.publicUrl;
+
+        uploads.push({ original: base64Str, url: publicURL });
+    }
+
+    uploads.forEach((img) => {
+        html = html.replace(img.original, img.url);
+    });
+
+    return html;
+};
+
+const extractFilenameFromUrl = (url) => {
+    const parts = url.split("/");
+    return parts[parts.length - 1];
+};
+
+const extractImageFilenamesFromContent = (content) => {
+    const regex = /<img[^>]+src="([^">]+)"/g;
+    const matches = [];
+    let match;
+    while ((match = regex.exec(content))) {
+        const src = match[1];
+        if (src.includes("supabase.co/storage")) {
+            matches.push(extractFilenameFromUrl(src));
+        }
+    }
+    return matches;
+};
+
+const extractImageUrls = (html) => {
+    const regex = /<img[^>]+src=["']([^"']+)["']/g;
+    const urls = [];
+    let match;
+    while ((match = regex.exec(html))) {
+        urls.push(match[1]);
+    }
+    return urls;
+};
+
+const extractBase64Images = (html) => {
+    const regex =
+        /<img[^>]+src=["'](data:image\/(png|jpeg|jpg|gif);base64,[^"']+)["']/g;
+    const base64s = [];
+    let match;
+    while ((match = regex.exec(html))) {
+        base64s.push(match[1]);
+    }
+    return base64s;
+};
+
 const slugify = (text) => {
     return (
         text
@@ -176,51 +248,6 @@ const slugify = (text) => {
         Date.now()
     );
 };
-
-// export const getAllArticles = async (req, res) => {
-//     try {
-//         const page = req.query.page || 1;
-//         const size = req.query.size || 10;
-//         const published = req.query.published || "true";
-//         const isPublished = published === "true";
-
-//         const offset = (page - 1) * size;
-//         const offsetSize = offset + parseInt(size);
-
-//         const { data: result } = await db
-//             .from("articles")
-//             .select("*, article_schedule(is_published, scheduled_at)");
-
-//         if (result === null) {
-//             successReq(res, 200, "Articles is empty");
-//             return;
-//         }
-
-//         const isAdmin = req.user?.role === "admin";
-
-//         let filtered = result;
-//         if (isAdmin) {
-//             if (req.query.published !== undefined) {
-//                 filtered = result.filter(
-//                     (article) =>
-//                         article.article_schedule[0].is_published === isPublished
-//                 );
-//             }
-//         } else {
-//             filtered = result.filter(
-//                 (article) => article.article_schedule[0].is_published === true
-//             );
-//         }
-
-//         const datas = await mappingArticle(filtered);
-
-//         const paginatedData = datas.slice(offset, offsetSize);
-
-//         successReq(res, 200, "Articles found", paginatedData);
-//     } catch (error) {
-//         failedReq(res, 500, error.message);
-//     }
-// };
 
 export const getDataArticles = async (req, res) => {
     try {
@@ -438,7 +465,7 @@ export const getArticleByTitle = async (req, res) => {
 
 export const createArticle = async (req, res) => {
     try {
-        const { title, content, scheduledAt, expiredAt } = req.body;
+        const { title, content: rawContent, scheduledAt, expiredAt } = req.body;
         const file = req.file;
 
         const { data: result } = await db
@@ -451,10 +478,12 @@ export const createArticle = async (req, res) => {
             return failedReq(res, 400, "Article already exists");
         }
 
-        if (!file) return failedReq(res, 400, "Image is required");
+        if (!file) return failedReq(res, 400, "Thumbnail image is required");
 
         const filename = `article-${Date.now()}-${file.originalname}`;
         const imageUrl = await uploadImage(file, filename);
+
+        const content = await processBase64Images(rawContent);
 
         const { data: article, error } = await db
             .from("articles")
@@ -473,7 +502,6 @@ export const createArticle = async (req, res) => {
         if (error) throw new Error(error.message);
 
         await saveScheduledArticle(article[0].id, scheduledAt, expiredAt);
-
         await saveArticleImage(article[0].id, imageUrl, filename);
 
         successReq(res, 200, "Article created", article[0]);
@@ -486,65 +514,77 @@ export const deleteArticleById = async (req, res) => {
     try {
         const id = req.params.id;
 
-        const result = await findById(id);
-        if (!result) {
-            failedReq(res, 404, "Article not found", null);
-            return;
+        const article = await findById(id);
+        if (!article) {
+            return failedReq(res, 404, "Article not found");
         }
 
-        const {
-            data: { filename },
-        } = await db
+        const { data: imageData, error: imageError } = await db
             .from("article_images")
             .select("filename")
             .eq("article_id", id)
             .single();
+        if (imageError) throw new Error(imageError.message);
+
+        const filenamesFromContent = extractImageFilenamesFromContent(
+            article[0].content
+        );
+
+        const allFilenames = [imageData.filename, ...filenamesFromContent];
 
         const { error: deleteStorageError } = await db.storage
             .from("blog-cms")
-            .remove(filename);
-
+            .remove(allFilenames);
         if (deleteStorageError) throw new Error(deleteStorageError.message);
 
         const { error: deleteImageError } = await db
             .from("article_images")
             .delete()
-            .eq("article_id", id)
-            .select();
-
+            .eq("article_id", id);
         if (deleteImageError) throw new Error(deleteImageError.message);
 
-        const { error: deleteScheduledError } = await db
+        const { error: deleteScheduleError } = await db
             .from("article_schedule")
             .delete()
-            .eq("article_id", id)
-            .select();
-        if (deleteScheduledError) throw new Error(deleteScheduledError.message);
+            .eq("article_id", id);
+        if (deleteScheduleError) throw new Error(deleteScheduleError.message);
 
-        const { error: deleteError } = await db
+        const { error: deleteArticleError } = await db
             .from("articles")
             .delete()
-            .eq("id", id)
-            .select();
+            .eq("id", id);
+        if (deleteArticleError) throw new Error(deleteArticleError.message);
 
-        if (deleteError) throw new Error(deleteError.message);
-
-        successReq(res, 200, "Article deleted", null);
+        return successReq(res, 200, "Article and related data deleted", null);
     } catch (error) {
-        failedReq(res, 500, error.message);
+        return failedReq(res, 500, error.message);
     }
 };
 
 export const updateArticleById = async (req, res) => {
     try {
         const id = req.params.id;
-        const { title, content, expiredAt, scheduledAt } = req.body;
+        let { title, content, expiredAt, scheduledAt } = req.body;
         const file = req.file;
 
         const result = await findById(id);
-        if (!result) {
-            failedReq(res, 404, "Article not found", null);
-            return;
+        if (!result) return failedReq(res, 404, "Article not found");
+
+        const oldContent = result[0].content;
+
+        // === Upload gambar base64 baru ke Supabase dan ganti di konten ===
+        const base64Images = extractBase64Images(content);
+        for (let i = 0; i < base64Images.length; i++) {
+            const base64 = base64Images[i];
+            const buffer = Buffer.from(base64.split(",")[1], "base64");
+            const typeMatch = base64.match(/^data:image\/(\w+);base64,/);
+            const ext = typeMatch ? typeMatch[1] : "png";
+            const filename = `content-${Date.now()}-${i}.${ext}`;
+            const url = await uploadImage(
+                { buffer, mimetype: `image/${ext}` },
+                filename
+            );
+            content = content.replace(base64, url);
         }
 
         if (title || content || expiredAt || scheduledAt) {
@@ -573,7 +613,7 @@ export const updateArticleById = async (req, res) => {
                 .update({
                     expired_at: expiredAt,
                     scheduled_at: scheduledAt,
-                    is_published: publishNow ? true : false,
+                    is_published: publishNow,
                     published_at: publishNow
                         ? moment().tz("Asia/Jakarta").format("YYYY-MM-DD")
                         : null,
@@ -583,9 +623,31 @@ export const updateArticleById = async (req, res) => {
 
             if (updateScheduledError)
                 throw new Error(updateScheduledError.message);
+
+            // === CLEAN UP UNUSED CONTENT IMAGES ===
+            const supabaseUrl = process.env.SUPABASE_URL;
+            const oldImages = extractImageUrls(oldContent).filter((url) =>
+                url.includes(
+                    `${supabaseUrl}/storage/v1/object/public/blog-cms/`
+                )
+            );
+            const newImages = extractImageUrls(content).filter((url) =>
+                url.includes(
+                    `${supabaseUrl}/storage/v1/object/public/blog-cms/`
+                )
+            );
+
+            const unusedImages = oldImages.filter(
+                (url) => !newImages.includes(url)
+            );
+
+            for (const url of unusedImages) {
+                const filename = url.split("/").slice(-1)[0];
+                await db.storage.from("blog-cms").remove([filename]);
+            }
         }
 
-        // === Gambar ===
+        // === Gambar cover utama ===
         if (file) {
             const {
                 data: { filename },
@@ -595,20 +657,13 @@ export const updateArticleById = async (req, res) => {
                 .eq("article_id", id)
                 .single();
 
-            const { error: deleteStorageError } = await db.storage
-                .from("blog-cms")
-                .remove(filename);
-            if (deleteStorageError) throw new Error(deleteStorageError.message);
+            await db.storage.from("blog-cms").remove([filename]);
 
-            const { error: deleteImageError } = await db
-                .from("article_images")
-                .delete()
-                .eq("article_id", id)
-                .select();
-            if (deleteImageError) throw new Error(deleteImageError.message);
+            await db.from("article_images").delete().eq("article_id", id);
 
             const path = `articles-${Date.now()}-${file.originalname}`;
             const imageUrl = await uploadImage(file, path);
+
             await saveArticleImage(id, imageUrl, path);
         }
 
